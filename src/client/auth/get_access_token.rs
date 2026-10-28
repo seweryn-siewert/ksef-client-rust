@@ -100,7 +100,17 @@ pub async fn refresh_access_token(client: &KsefClient) -> Result<AccessTokens, K
     })
 }
 
+/// Redeems the access and refresh tokens of the current authentication operation and stores
+/// them in the client.
+///
+/// KSeF allows redeeming the tokens only once per authentication operation (a second attempt
+/// fails with exception 21301). `get_auth_status` already redeems them when authentication
+/// succeeds, so when tokens are present this returns `Ok(())` without calling the API.
+/// Starting a new authentication clears them.
 pub async fn get_access_token_and_load(client: &mut KsefClient) -> Result<(), KsefError> {
+    if !KsefClient::secret_str(&client.access_token.access_token).is_empty() {
+        return Ok(());
+    }
     let tokens = get_access_token(&*client).await?;
     client.access_token = tokens;
     Ok(())
@@ -110,4 +120,40 @@ pub async fn refresh_access_token_and_load(client: &mut KsefClient) -> Result<()
     let tokens = refresh_access_token(&*client).await?;
     client.access_token = tokens;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::client::models::{ContextIdentifier, ContextIdentifierType};
+
+    fn client() -> KsefClient {
+        // Unroutable address: any request would fail.
+        KsefClient::new_with_base(
+            "http://127.0.0.1:9",
+            ContextIdentifier {
+                id_type: ContextIdentifierType::Nip,
+                value: "1111111111".to_string(),
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn already_redeemed_tokens_are_not_redeemed_again() {
+        let mut client = client();
+        client.access_token.access_token = Secret::new("redeemed".to_string());
+        get_access_token_and_load(&mut client)
+            .await
+            .expect("no second redeem");
+        assert_eq!(
+            KsefClient::secret_str(&client.access_token.access_token),
+            "redeemed"
+        );
+    }
+
+    #[tokio::test]
+    async fn without_tokens_the_api_is_called() {
+        let mut client = client();
+        assert!(get_access_token_and_load(&mut client).await.is_err());
+    }
 }

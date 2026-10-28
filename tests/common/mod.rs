@@ -79,7 +79,10 @@ pub async fn authorize_client() -> KsefClient {
         }
     }
 
-    let _ = client.get_access_token().await;
+    client
+        .get_access_token()
+        .await
+        .expect("access token (already redeemed by get_auth_status)");
 
     client
 }
