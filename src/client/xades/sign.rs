@@ -2,10 +2,11 @@ use crate::client::error::KsefError;
 use crate::client::xades::utils::xml_escape;
 use base64::{Engine as _, engine::general_purpose};
 use chrono::{SecondsFormat, Utc};
+use openssl::ecdsa::EcdsaSig;
 use openssl::hash::{MessageDigest, hash};
 use openssl::pkcs12::ParsedPkcs12_2;
 use openssl::pkey::PKey;
-use openssl::pkey::PKeyRef;
+use openssl::pkey::{Id, PKeyRef};
 use openssl::sign::Signer;
 use openssl::x509::X509;
 use regex::Regex;
@@ -40,10 +41,18 @@ pub fn sign(xml: &str, pkcs12: &ParsedPkcs12_2) -> Result<String, KsefError> {
     let doc_c14n = canonicalize_common(&doc_for_digest, true);
     let digest_doc = sha256_b64(doc_c14n.as_bytes());
 
-    let signed_info = build_signed_info(&digest_doc, &digest_signed_properties);
+    let algorithm = SignatureAlgorithm::for_key(pkey.as_ref())?;
+    let signed_info = build_signed_info(algorithm, &digest_doc, &digest_signed_properties);
     let signed_info_c14n = canonicalize_inclusive(&signed_info);
 
-    let signature_value = rsa_sha256_sign_b64(pkey.as_ref(), signed_info_c14n.as_bytes())?;
+    let signature_value = match algorithm {
+        SignatureAlgorithm::RsaSha256 => {
+            rsa_sha256_sign_b64(pkey.as_ref(), signed_info_c14n.as_bytes())?
+        }
+        SignatureAlgorithm::EcdsaSha256 { field_bytes } => {
+            ecdsa_sha256_sign_b64(pkey.as_ref(), signed_info_c14n.as_bytes(), field_bytes)?
+        }
+    };
 
     let key_info = format!(
         "<KeyInfo><X509Data><X509Certificate>{}</X509Certificate></X509Data></KeyInfo>",
@@ -170,12 +179,53 @@ fn build_signed_properties(cert: &X509, cert_der: Vec<u8>) -> Result<String, Kse
     Ok(compact_xml(&signed_properties))
 }
 
-fn build_signed_info(digest_doc_b64: &str, digest_signed_props_b64: &str) -> String {
+/// Signature algorithm chosen from the private key: KSeF certificates have RSA or EC (ECDSA)
+/// keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SignatureAlgorithm {
+    RsaSha256,
+    /// `field_bytes`: size of the curve's field in bytes (32 for P-256), the length of each of
+    /// `r` and `s` in the XML-DSig signature value.
+    EcdsaSha256 {
+        field_bytes: usize,
+    },
+}
+
+impl SignatureAlgorithm {
+    fn for_key(pkey: &PKeyRef<openssl::pkey::Private>) -> Result<Self, KsefError> {
+        match pkey.id() {
+            Id::RSA => Ok(Self::RsaSha256),
+            Id::EC => {
+                let degree = pkey.ec_key()?.group().degree() as usize;
+                Ok(Self::EcdsaSha256 {
+                    field_bytes: degree.div_ceil(8),
+                })
+            }
+            other => Err(KsefError::Unexpected(format!(
+                "unsupported private key type for XAdES: {:?}",
+                other
+            ))),
+        }
+    }
+
+    fn uri(self) -> &'static str {
+        match self {
+            Self::RsaSha256 => "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
+            Self::EcdsaSha256 { .. } => "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256",
+        }
+    }
+}
+
+fn build_signed_info(
+    algorithm: SignatureAlgorithm,
+    digest_doc_b64: &str,
+    digest_signed_props_b64: &str,
+) -> String {
     let si = format!(
         r###"
         <SignedInfo>
             <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315" />
-            <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" />
+            <SignatureMethod Algorithm="{}" />
             <Reference URI="">
                 <Transforms>
                     <Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" />
@@ -192,7 +242,9 @@ fn build_signed_info(digest_doc_b64: &str, digest_signed_props_b64: &str) -> Str
                 <DigestValue>{}</DigestValue>
             </Reference>
         </SignedInfo>"###,
-        digest_doc_b64, digest_signed_props_b64
+        algorithm.uri(),
+        digest_doc_b64,
+        digest_signed_props_b64
     );
 
     compact_xml(&si)
@@ -318,6 +370,24 @@ fn rsa_sha256_sign_b64(
     Ok(general_purpose::STANDARD.encode(&sig))
 }
 
+/// ECDSA signature as XML-DSig requires it (RFC 4050): `r` and `s` as big-endian integers,
+/// each left-padded to the field size, concatenated - not the DER encoding OpenSSL produces.
+fn ecdsa_sha256_sign_b64(
+    pkey: &PKeyRef<openssl::pkey::Private>,
+    data: &[u8],
+    field_bytes: usize,
+) -> Result<String, KsefError> {
+    let mut signer = Signer::new(MessageDigest::sha256(), pkey)?;
+    signer.update(data)?;
+    let der = signer.sign_to_vec()?;
+    let sig = EcdsaSig::from_der(&der)?;
+    let field = i32::try_from(field_bytes)
+        .map_err(|_| KsefError::Unexpected("EC field size too large".to_string()))?;
+    let mut raw = sig.r().to_vec_padded(field)?;
+    raw.extend(sig.s().to_vec_padded(field)?);
+    Ok(general_purpose::STANDARD.encode(&raw))
+}
+
 fn sha256_b64(bytes: &[u8]) -> String {
     let digest = hash(MessageDigest::sha256(), bytes).expect("sha256");
     general_purpose::STANDARD.encode(digest)
@@ -335,6 +405,9 @@ mod tests {
     use super::*;
     use crate::client::xades::gen_selfsign_cert::gen_selfsign_cert;
     use base64::engine::general_purpose;
+    use openssl::bn::BigNum;
+    use openssl::ec::{EcGroup, EcKey};
+    use openssl::nid::Nid;
     use openssl::pkey::PKey;
     use openssl::rsa::Rsa;
 
@@ -362,7 +435,8 @@ mod tests {
 
     #[test]
     fn test_build_signed_info_includes_digests() {
-        let si = build_signed_info("DOC_DIGEST", "PROP_DIGEST");
+        let si = build_signed_info(SignatureAlgorithm::RsaSha256, "DOC_DIGEST", "PROP_DIGEST");
+        assert!(si.contains("xmldsig-more#rsa-sha256"));
         assert!(si.contains("DOC_DIGEST"));
         assert!(si.contains("PROP_DIGEST"));
         assert!(si.contains("<SignedInfo"));
@@ -411,6 +485,63 @@ mod tests {
             .decode(sig_b64)
             .expect("base64 decode");
         assert!(!sig.is_empty());
+    }
+
+    #[test]
+    fn test_ecdsa_sha256_signature_is_raw_r_s_and_verifies() {
+        let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).expect("group");
+        let ec = EcKey::generate(&group).expect("ec gen");
+        let pkey = PKey::from_ec_key(ec.clone()).expect("pkey");
+        let algorithm = SignatureAlgorithm::for_key(pkey.as_ref()).expect("algorithm");
+        assert_eq!(
+            algorithm,
+            SignatureAlgorithm::EcdsaSha256 { field_bytes: 32 }
+        );
+
+        let sig_b64 = ecdsa_sha256_sign_b64(pkey.as_ref(), b"hello world", 32).expect("sign");
+        let raw = general_purpose::STANDARD.decode(sig_b64).expect("base64");
+        assert_eq!(raw.len(), 64, "r || s, 32 bytes each");
+        let r = BigNum::from_slice(&raw[..32]).expect("r");
+        let s = BigNum::from_slice(&raw[32..]).expect("s");
+        let sig = EcdsaSig::from_private_components(r, s).expect("sig");
+        let digest = hash(MessageDigest::sha256(), b"hello world").expect("digest");
+        assert!(sig.verify(&digest, &ec).expect("verify"));
+    }
+
+    #[test]
+    fn test_sign_with_ec_key_uses_ecdsa_method() {
+        let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1).expect("group");
+        let pkey = PKey::from_ec_key(EcKey::generate(&group).expect("ec")).expect("pkey");
+        let mut name = openssl::x509::X509NameBuilder::new().expect("name");
+        name.append_entry_by_text("CN", "Test EC").expect("cn");
+        let name = name.build();
+        let mut builder = openssl::x509::X509Builder::new().expect("builder");
+        builder.set_version(2).expect("version");
+        builder.set_subject_name(&name).expect("subject");
+        builder.set_issuer_name(&name).expect("issuer");
+        builder.set_pubkey(&pkey).expect("pubkey");
+        builder
+            .set_not_before(&openssl::asn1::Asn1Time::days_from_now(0).expect("time"))
+            .expect("not before");
+        builder
+            .set_not_after(&openssl::asn1::Asn1Time::days_from_now(1).expect("time"))
+            .expect("not after");
+        builder
+            .sign(&pkey, MessageDigest::sha256())
+            .expect("self-sign");
+        let cert = builder.build();
+        let pkcs12 = openssl::pkcs12::Pkcs12::builder()
+            .name("ec")
+            .pkey(&pkey)
+            .cert(&cert)
+            .build2("pw")
+            .expect("pkcs12")
+            .parse2("pw")
+            .expect("parse");
+
+        let signed = sign("<Envelope><Data>hello</Data></Envelope>", &pkcs12).expect("sign");
+        assert!(signed.contains("xmldsig-more#ecdsa-sha256"));
+        assert!(!signed.contains("rsa-sha256"));
     }
 
     #[test]
