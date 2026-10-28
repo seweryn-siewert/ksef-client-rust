@@ -36,6 +36,25 @@ pub async fn send_invoice(
     invoice_xml: &[u8],
     encryption_data: &EncryptionData,
 ) -> Result<SendInvoiceResponse, KsefError> {
+    send_invoice_with_mode(
+        client,
+        session_reference_number,
+        invoice_xml,
+        encryption_data,
+        false,
+    )
+    .await
+}
+
+/// Like [`send_invoice`]; `offline_mode` marks an invoice issued offline (offline24, KSeF
+/// unavailability or failure) that is now being sent, so KSeF keeps its issue date.
+pub async fn send_invoice_with_mode(
+    client: &KsefClient,
+    session_reference_number: &ReferenceNumber,
+    invoice_xml: &[u8],
+    encryption_data: &EncryptionData,
+    offline_mode: bool,
+) -> Result<SendInvoiceResponse, KsefError> {
     let invoice_hash = hash_invoice(invoice_xml);
     let invoice_size = invoice_xml.len() as u64;
 
@@ -54,7 +73,7 @@ pub async fn send_invoice(
         encrypted_invoice_hash: BASE64.encode(encrypted_invoice_hash),
         encrypted_invoice_size,
         encrypted_invoice_content: BASE64.encode(encrypted_content),
-        offline_mode: false,
+        offline_mode,
         hash_of_corrected_invoice: None,
     };
     let url = client.url_for(&format!(
@@ -91,4 +110,24 @@ pub async fn send_invoice(
     let parsed: SendInvoiceResponse = resp.json().await?;
 
     Ok(parsed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn offline_mode_is_serialized() {
+        let request = SendInvoiceRequest {
+            invoice_hash: "h".into(),
+            invoice_size: 1,
+            encrypted_invoice_hash: "e".into(),
+            encrypted_invoice_size: 2,
+            encrypted_invoice_content: "c".into(),
+            offline_mode: true,
+            hash_of_corrected_invoice: None,
+        };
+        let json = serde_json::to_value(&request).expect("json");
+        assert_eq!(json["offlineMode"], serde_json::Value::Bool(true));
+    }
 }

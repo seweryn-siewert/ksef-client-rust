@@ -54,7 +54,7 @@ pub trait KsefSessions {
     ) -> Result<(), KsefError>;
 
     async fn close_batch_session(&self, reference_number: ReferenceNumber)
-        -> Result<(), KsefError>;
+    -> Result<(), KsefError>;
 
     async fn submit_batch(
         &self,
@@ -66,6 +66,15 @@ pub trait KsefSessions {
     ) -> Result<BatchSubmissionResult, KsefError>;
 
     async fn submit_online(
+        &self,
+        invoice: &[u8],
+        system_code: Option<&str>,
+        schema_version: Option<&str>,
+        value: Option<&str>,
+    ) -> Result<OnlineSubmissionResult, KsefError>;
+
+    /// Sends an invoice issued offline (`offlineMode: true`) in a new online session.
+    async fn submit_offline_invoice(
         &self,
         invoice: &[u8],
         system_code: Option<&str>,
@@ -193,6 +202,24 @@ impl KsefSessions for KsefClient {
     ) -> Result<OnlineSubmissionResult, KsefError> {
         online_session::full_flow::submit_online(self, invoice, system_code, schema_version, value)
             .await
+    }
+
+    async fn submit_offline_invoice(
+        &self,
+        invoice: &[u8],
+        system_code: Option<&str>,
+        schema_version: Option<&str>,
+        value: Option<&str>,
+    ) -> Result<OnlineSubmissionResult, KsefError> {
+        online_session::full_flow::submit_online_with_mode(
+            self,
+            invoice,
+            system_code,
+            schema_version,
+            value,
+            true,
+        )
+        .await
     }
 
     async fn send_invoice(

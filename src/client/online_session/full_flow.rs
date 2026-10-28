@@ -5,7 +5,7 @@ use crate::client::online_session::encryption::generate_encryption_data;
 use crate::client::online_session::open_online_session::{
     OpenOnlineSessionRequestBuilder, open_online_session,
 };
-use crate::client::online_session::send_invoice::send_invoice;
+use crate::client::online_session::send_invoice::send_invoice_with_mode;
 use crate::client::types::ReferenceNumber;
 
 #[derive(Debug, Clone)]
@@ -21,13 +21,24 @@ pub async fn submit_online(
     schema_version: Option<&str>,
     value: Option<&str>,
 ) -> Result<OnlineSubmissionResult, KsefError> {
+    submit_online_with_mode(client, invoice, system_code, schema_version, value, false).await
+}
+
+/// Like [`submit_online`]; `offline_mode` sends an invoice issued offline.
+pub async fn submit_online_with_mode(
+    client: &KsefClient,
+    invoice: &[u8],
+    system_code: Option<&str>,
+    schema_version: Option<&str>,
+    value: Option<&str>,
+    offline_mode: bool,
+) -> Result<OnlineSubmissionResult, KsefError> {
     let encryption_data = generate_encryption_data(client).await?;
 
-    let mut builder = OpenOnlineSessionRequestBuilder::new()
-        .with_encryption(
-            &encryption_data.encrypted_symmetric_key,
-            &encryption_data.initialization_vector,
-        );
+    let mut builder = OpenOnlineSessionRequestBuilder::new().with_encryption(
+        &encryption_data.encrypted_symmetric_key,
+        &encryption_data.initialization_vector,
+    );
 
     if let Some(code) = system_code {
         builder = builder.with_system_code(code);
@@ -44,8 +55,14 @@ pub async fn submit_online(
     let session_response = open_online_session(client, request).await?;
     let session_reference_number = ReferenceNumber::new(session_response.reference_number);
 
-    let send_result =
-        send_invoice(client, &session_reference_number, invoice, &encryption_data).await?;
+    let send_result = send_invoice_with_mode(
+        client,
+        &session_reference_number,
+        invoice,
+        &encryption_data,
+        offline_mode,
+    )
+    .await?;
     let invoice_reference_number = ReferenceNumber::new(send_result.reference_number);
 
     close_online_session(client, &session_reference_number).await?;
