@@ -102,7 +102,8 @@ async fn test_batch_zip_flow() {
 async fn test_batch_session_initialization() {
     let client: ksef_client::KsefClient = common::authorize_client().await;
 
-    let issuer_nip = "5261234567";
+    let issuer_nip = client.context.value.clone();
+    let issuer_nip = issuer_nip.as_str();
     let invoice_xml: String = common::generate_fa2_invoice(issuer_nip).await;
 
     let invoices = vec![InvoicePayload {
@@ -184,7 +185,8 @@ async fn test_batch_session_initialization() {
 async fn test_submit_batch_automated() {
     let client: ksef_client::KsefClient = common::authorize_client().await;
 
-    let issuer_nip = "5261234567";
+    let issuer_nip = client.context.value.clone();
+    let issuer_nip = issuer_nip.as_str();
     let invoice_xml_1: String = common::generate_fa2_invoice(issuer_nip).await;
     let invoice_xml_2: String = common::generate_fa2_invoice(issuer_nip).await;
 

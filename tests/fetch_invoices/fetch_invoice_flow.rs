@@ -10,7 +10,8 @@ use std::io::Read;
 #[tokio::test]
 async fn test_fetch_invoice_flow() {
     let client = common::authorize_client().await;
-    let nip = "5261234567";
+    let nip = client.context.value.clone();
+    let nip = nip.as_str();
 
     let online_session_invoice_xml: String = common::generate_fa2_invoice(nip).await;
 
@@ -163,15 +164,27 @@ async fn test_fetch_invoice_flow() {
 
     println!("Starting incremental invoice fetch...");
 
-    let mut state = IncrementalFetchState::new();
-    let subject_types = vec![SubjectType::Subject1];
+    // Incremental fetch reads only invoices already moved to permanent storage (up to its
+    // high-water mark); for a fresh NIP the invoices sent above get there after a while.
     let default_start = chrono::Utc::now() - chrono::Duration::days(1);
     let window_end = Some(chrono::Utc::now() + chrono::Duration::days(1));
-
-    let fetched_invoices = client
-        .export_invoices_incrementally(&mut state, subject_types, window_end, default_start)
-        .await
-        .expect("Failed to fetch invoices incrementally");
+    let mut fetched_invoices = Vec::new();
+    for _ in 0..18 {
+        let mut state = IncrementalFetchState::new();
+        fetched_invoices = client
+            .export_invoices_incrementally(
+                &mut state,
+                vec![SubjectType::Subject1],
+                window_end,
+                default_start,
+            )
+            .await
+            .expect("Failed to fetch invoices incrementally");
+        if !fetched_invoices.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
 
     println!("Incrementally fetched {} invoices", fetched_invoices.len());
 

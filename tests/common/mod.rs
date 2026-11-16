@@ -30,8 +30,10 @@ pub async fn generate_random_nip() -> String {
 }
 
 #[allow(dead_code)]
+/// Client authenticated on KSeF TEST with a self-signed certificate for a fresh random NIP, so
+/// runs do not share per-NIP limits (e.g. 400 enrolled certificates) or data.
 pub async fn authorize_client() -> KsefClient {
-    let nip = "5261234567";
+    let nip = generate_random_nip().await;
     let context = ContextIdentifier {
         id_type: ContextIdentifierType::Nip,
         value: nip.to_string(),
