@@ -132,6 +132,21 @@ Szczegóły w katalogu `docs/`:
 [CIRFMF/ksef-docs](https://github.com/CIRFMF/ksef-docs), schematy:
 [CIRFMF/ksef-schematy](https://github.com/CIRFMF/ksef-schematy).
 
+## Bezpieczeństwo
+
+- Biblioteka **nie przeszła niezależnego audytu bezpieczeństwa**. Jest rozpowszechniana bez
+  gwarancji (GPL-3.0, pkt 15–16).
+- Połączenia z KSeF: TLS przez `rustls` (weryfikacja certyfikatów serwera włączona), limit
+  czasu 30 s. Tokeny i klucze prywatne przechowywane w typie `Secret` (nie trafiają do logów
+  przez `Debug`); biblioteka nie wypisuje niczego na konsolę.
+- Kod bez bloków `unsafe`.
+- Zależności sprawdzone w bazie OSV/RustSec (16.11.2026): brak znanych podatności w `Cargo.lock`.
+  Aplikacje korzystające z biblioteki mają własny `Cargo.lock` — warto sprawdzać je regularnie
+  (np. `cargo audit`).
+- Znane ograniczenie: uproszczona kanonikalizacja XML w podpisie XAdES (biblioteka podpisuje
+  wyłącznie XML, który sama buduje).
+- Zgłaszanie podatności: patrz [`SECURITY.md`](SECURITY.md).
+
 ## Licencja
 
 Projekt jest rozpowszechniany na licencji **GNU GPL w wersji 3 lub dowolnej późniejszej**

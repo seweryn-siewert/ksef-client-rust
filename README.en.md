@@ -135,6 +135,21 @@ Sources of truth for the API: [CIRFMF/ksef-api](https://github.com/CIRFMF/ksef-a
 [CIRFMF/ksef-docs](https://github.com/CIRFMF/ksef-docs), schemas:
 [CIRFMF/ksef-schematy](https://github.com/CIRFMF/ksef-schematy).
 
+## Security
+
+- The library **has not undergone an independent security audit**. It is distributed without
+  any warranty (GPL-3.0, sections 15–16).
+- Connections to KSeF: TLS via `rustls` (server certificate verification enabled), 30 s
+  timeout. Tokens and private keys are kept in the `Secret` type (they do not end up in logs via
+  `Debug`); the library does not print anything to the console.
+- No `unsafe` blocks in the code.
+- Dependencies checked against the OSV/RustSec database (16 November 2026): no known
+  vulnerabilities in `Cargo.lock`. Applications using the library have their own `Cargo.lock` —
+  check it regularly (e.g. `cargo audit`).
+- Known limitation: simplified XML canonicalisation in the XAdES signature (the library signs only
+  XML it builds itself).
+- Reporting vulnerabilities: see [`SECURITY.md`](SECURITY.md).
+
 ## License
 
 The project is distributed under the **GNU GPL version 3 or any later version**
