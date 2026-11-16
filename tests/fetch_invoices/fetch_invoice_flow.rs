@@ -20,15 +20,24 @@ async fn test_fetch_invoice_flow() {
         .await
         .expect("Failed to submit online session");
 
-    let online_session_status = client
-        .get_invoice_status(
-            online_session_result.session_reference_number.clone(),
-            online_session_result.invoice_reference_number.clone(),
-        )
-        .await
-        .expect("Failed to get invoice status");
-
-    assert!(online_session_status.invoice_status.code == 200);
+    // The invoice is processed asynchronously: wait for the final status (up to 2 minutes).
+    let mut online_session_status = None;
+    for _ in 0..60 {
+        let status = client
+            .get_invoice_status(
+                online_session_result.session_reference_number.clone(),
+                online_session_result.invoice_reference_number.clone(),
+            )
+            .await
+            .expect("Failed to get invoice status");
+        if status.invoice_status.code >= 200 {
+            online_session_status = Some(status);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    }
+    let online_session_status = online_session_status.expect("Invoice still processing");
+    assert_eq!(online_session_status.invoice_status.code, 200);
 
     let batch_session_invoice_xml_1: String = common::generate_fa2_invoice(nip).await;
     let batch_session_invoice_xml_2: String = common::generate_fa2_invoice(nip).await;
@@ -79,7 +88,18 @@ async fn test_fetch_invoice_flow() {
         .build()
         .expect("Failed to build FetchInvoiceMetadataRequest");
 
-    let metadata_resp = client.fetch_invoice_metadata(query_req.clone()).await;
+    // A fresh NIP has no invoices listed until the ones sent above are indexed (up to 3 min).
+    let mut metadata_resp = client.fetch_invoice_metadata(query_req.clone()).await;
+    for _ in 0..18 {
+        if metadata_resp
+            .as_ref()
+            .is_ok_and(|resp| !resp.invoices.is_empty())
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        metadata_resp = client.fetch_invoice_metadata(query_req.clone()).await;
+    }
 
     let mut ksef_number = "".to_string();
 
@@ -132,12 +152,18 @@ async fn test_fetch_invoice_flow() {
 
     println!("Starting invoice export...");
 
-    let export_result = client
-        .export_invoices(query_req.query.clone())
-        .await
-        .expect("Failed to export invoices and wait for completion");
-
-    let exported_parts = export_result.parts;
+    let mut exported_parts = Vec::new();
+    for _ in 0..18 {
+        exported_parts = client
+            .export_invoices(query_req.query.clone())
+            .await
+            .expect("Failed to export invoices and wait for completion")
+            .parts;
+        if !exported_parts.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    }
     println!("Exported {} parts", exported_parts.len());
 
     for part in exported_parts.iter() {
