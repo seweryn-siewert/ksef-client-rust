@@ -7,8 +7,7 @@ use crate::client::routes;
 use crate::client::traits::*;
 use crate::prelude::ContextIdentifierType;
 use base64::{Engine as _, engine::general_purpose};
-use openssl::hash::MessageDigest;
-use openssl::md::MdRef;
+use openssl::md::Md;
 use openssl::pkey::PKey;
 use openssl::rsa::Padding;
 use secrecy::Secret;
@@ -86,12 +85,9 @@ pub async fn submit_ksef_token_auth_request(
     let pem = String::from_utf8(pem_bytes)
         .map_err(|e| KsefError::Unexpected(format!("UTF-8 error: {}", e)))?;
 
-    let encrypted_token = encrypt_token(
-        KsefClient::secret_str(&token),
-        challenge.timestamp_ms,
-        &pem,
-    )
-    .map_err(KsefError::OpenSslError)?;
+    let encrypted_token =
+        encrypt_token(KsefClient::secret_str(&token), challenge.timestamp_ms, &pem)
+            .map_err(KsefError::OpenSslError)?;
 
     let context_type_str = match context_type {
         ContextIdentifierType::Nip => "Nip",
@@ -151,13 +147,8 @@ fn encrypt_token(
     ctx.encrypt_init()?;
     ctx.set_rsa_padding(Padding::PKCS1_OAEP)?;
 
-    let md = MessageDigest::sha256();
-    unsafe {
-        let ptr = md.as_ptr();
-        let md_ref = &*(ptr as *const MdRef);
-        ctx.set_rsa_oaep_md(md_ref)?;
-        ctx.set_rsa_mgf1_md(md_ref)?;
-    }
+    ctx.set_rsa_oaep_md(Md::sha256())?;
+    ctx.set_rsa_mgf1_md(Md::sha256())?;
 
     let mut output = vec![];
     ctx.encrypt_to_vec(token_bytes, &mut output)?;

@@ -175,11 +175,6 @@ pub async fn fetch_invoices_incrementally(
                     metadata: meta,
                     content: xml.clone(),
                 });
-            } else {
-                println!(
-                    "Warning: Content for KSeF number {} not found in zip parts",
-                    ksef_number
-                );
             }
         }
 

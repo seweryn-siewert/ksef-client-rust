@@ -4,7 +4,7 @@ use crate::prelude::Environment;
 use base64::{Engine as _, engine::general_purpose};
 use openssl::ecdsa::EcdsaSig;
 use openssl::hash::{MessageDigest, hash};
-use openssl::md::MdRef;
+use openssl::md::Md;
 use openssl::pkey::PKey;
 use openssl::pkey_ctx::PkeyCtx;
 use openssl::rsa::Padding;
@@ -19,16 +19,6 @@ fn pad_be(mut v: Vec<u8>, width: usize) -> Vec<u8> {
         let mut out = vec![0u8; width - v.len()];
         out.extend_from_slice(&v);
         out
-    }
-}
-
-// Helper: convert MessageDigest -> &MdRef.
-// The openssl 0.10 API expects `&MdRef` but we create a `MessageDigest`.
-// To avoid scattering `unsafe` blocks, centralize the conversion here
-fn md_ref_from_message_digest(md: MessageDigest) -> &'static MdRef {
-    unsafe {
-        let ptr = md.as_ptr();
-        &*(ptr as *const MdRef)
     }
 }
 
@@ -92,10 +82,8 @@ pub fn build_certificate_verification_url(
             let mut ctx = PkeyCtx::new(&pkey)?;
             ctx.sign_init()?;
             ctx.set_rsa_padding(Padding::PKCS1_PSS)?;
-            let md = MessageDigest::sha256();
-            let md_ref = md_ref_from_message_digest(md);
-            ctx.set_signature_md(md_ref)?;
-            ctx.set_rsa_mgf1_md(md_ref)?;
+            ctx.set_signature_md(Md::sha256())?;
+            ctx.set_rsa_mgf1_md(Md::sha256())?;
             let digest = hash(MessageDigest::sha256(), data)?;
             ctx.set_rsa_pss_saltlen(RsaPssSaltlen::custom(32))?;
             let required = ctx.sign(&digest, None)?;

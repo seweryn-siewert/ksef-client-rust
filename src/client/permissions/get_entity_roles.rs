@@ -56,25 +56,11 @@ pub async fn get_entity_roles(
         req = req.query(&[("pageSize", size.to_string())]);
     }
 
-    if cfg!(debug_assertions) {
-        eprintln!(
-            "DEBUG get_entity_roles -> url: {}, pageOffset: {:?}, pageSize: {:?}",
-            url, page_offset, page_size
-        );
-    }
-
     let resp = req.send().await.map_err(KsefError::RequestError)?;
 
     let status = resp.status();
     if !status.is_success() {
         let resp_body = resp.text().await.unwrap_or_default();
-        eprintln!(
-            "get_entity_roles ERROR -> status: {}, pageOffset: {:?}, pageSize: {:?}, response_body: {}",
-            status.as_u16(),
-            page_offset,
-            page_size,
-            resp_body
-        );
         return Err(KsefError::from_api_response(status.as_u16(), resp_body));
     }
 

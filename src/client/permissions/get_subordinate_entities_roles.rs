@@ -94,33 +94,11 @@ pub async fn get_subordinate_entities_roles(
         req = req.json(&Value::Object(Map::new()));
     }
 
-    let attempted_body = match &request_body {
-        Some(b) => {
-            serde_json::to_string(b).unwrap_or_else(|_| "<failed to serialize body>".to_string())
-        }
-        None => "{}".to_string(),
-    };
-
-    if cfg!(debug_assertions) {
-        eprintln!(
-            "DEBUG get_subordinate_entities_roles -> url: {}, pageOffset: {:?}, pageSize: {:?}, body: {}",
-            url, page_offset, page_size, attempted_body
-        );
-    }
-
     let resp = req.send().await.map_err(KsefError::RequestError)?;
 
     let status = resp.status();
     if !status.is_success() {
         let resp_body = resp.text().await.unwrap_or_default();
-        eprintln!(
-            "get_subordinate_entities_roles ERROR -> status: {}, pageOffset: {:?}, pageSize: {:?}, request_body: {}, response_body: {}",
-            status.as_u16(),
-            page_offset,
-            page_size,
-            attempted_body,
-            resp_body
-        );
         return Err(KsefError::from_api_response(status.as_u16(), resp_body));
     }
 
