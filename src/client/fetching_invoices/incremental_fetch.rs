@@ -130,13 +130,20 @@ pub async fn fetch_invoices_incrementally(
                     KsefError::ApplicationError(0, format!("Failed to read file in zip: {}", e))
                 })?;
 
-                if file.name().ends_with(".xml") {
+                let name = file
+                    .name()
+                    .map_err(|e| {
+                        KsefError::ApplicationError(0, format!("Invalid file name in zip: {}", e))
+                    })?
+                    .into_owned();
+
+                if name.ends_with(".xml") {
                     let mut xml_content = String::new();
                     file.read_to_string(&mut xml_content).map_err(|e| {
                         KsefError::ApplicationError(0, format!("Failed to read xml content: {}", e))
                     })?;
-                    invoices_in_batch.insert(file.name().to_string(), xml_content);
-                } else if file.name().ends_with(".json") && file.name().contains("metadata") {
+                    invoices_in_batch.insert(name, xml_content);
+                } else if name.ends_with(".json") && name.contains("metadata") {
                     let mut json_content = String::new();
                     file.read_to_string(&mut json_content).map_err(|e| {
                         KsefError::ApplicationError(
