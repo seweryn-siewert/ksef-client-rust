@@ -1,13 +1,13 @@
 [package]
 name = "ksef-client"
-version = "0.2.2"
+version = "1.0.0"
 edition = "2024"
 
-authors = ["pengwius <pengwius@protonmail.ch>"]
+authors = ["pengwius <pengwius@protonmail.ch>", "Seweryn Siewert"]
 description = "SDK for integrating with the Polish National e-Invoice System (KSeF)."
-license = "MIT"
+license = "GPL-3.0-or-later"
 categories = ["api-bindings","web-programming::http-client"]
-repository = "https://github.com/pengwius/ksef-client-rust"
+repository = "https://github.com/seweryn-siewert/ksef-client-rust"
 
 keywords = ["ksef", "faktury", "e-invoices", "poland", "client"]
 
