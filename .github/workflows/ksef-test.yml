@@ -1,0 +1,20 @@
+name: KSeF TEST integration tests
+
+# Talks to the public KSeF TEST environment; run manually.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: All tests (unit and KSeF TEST)
+        run: cargo test --locked --no-fail-fast

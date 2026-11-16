@@ -5,18 +5,32 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  schedule:
+    # Weekly, so newly published advisories are caught without a push.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Build
+        run: cargo build --locked --verbose
+      # Unit tests only; the integration tests talk to KSeF TEST (see ksef-test.yml).
+      - name: Unit tests
+        run: cargo test --locked --lib --verbose
+      - name: Clippy (informational)
+        run: cargo clippy --locked --all-targets
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit dependencies (RustSec)
+        run: cargo audit
