@@ -16,5 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      # One test at a time: parallel requests to the shared TEST environment cause sporadic
+      # timeouts.
       - name: All tests (unit and KSeF TEST)
-        run: cargo test --locked --no-fail-fast
+        run: cargo test --locked --no-fail-fast -- --test-threads=1
